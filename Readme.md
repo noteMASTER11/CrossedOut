@@ -10,6 +10,7 @@ Welcome to the LinkedIn Employee Parser! This project is based on the LinkedInDu
 - [Installation](#installation)
 - [Usage](#usage)
 - [Configuration](#configuration)
+- [Automated Windows Launch](#automated-windows-launch)
 - [Acknowledgements](#acknowledgements)
 - [License](#license)
 
@@ -79,6 +80,33 @@ Ensure that you have the following installed on your system:
 ## Configuration
 
 The application uses a `config.yml` file to store configuration settings, such as whether to show the welcome screen on startup. Users can modify this file to customize the application's behavior.
+
+## Automated Windows Launch
+
+You can automate the setup and launch process on Windows using a batch script provided in this repository. Here's how it works:
+
+### How the Batch Script Works
+
+1. **Python Installation Check:**
+   - The script begins by checking if Python is installed at a specified path. If Python is not found, it attempts to locate Python in the system PATH.
+   - If Python is still not found, the script automatically downloads and installs Python 3.12.
+
+2. **Virtual Environment Setup:**
+   - The script creates a virtual environment in the project directory to isolate the project dependencies.
+
+3. **Dependency Installation:**
+   - After setting up the virtual environment, the script installs the required dependencies from the `requirements.txt` file.
+
+4. **Application Launch:**
+   - Finally, the script activates the virtual environment and runs the LinkedIn Employee Parser application.
+
+### Running the Batch Script
+
+1. **Create the Script:**
+   - Copy the provided batch script code into a new text file and save it with a `.bat` extension, e.g., `start_linkedin_parser.bat`.
+
+2. **Run the Script:**
+   - Double-click the `.bat` file to execute the script. The script will handle the entire setup and launch process for you.
 
 ## Acknowledgements
 
