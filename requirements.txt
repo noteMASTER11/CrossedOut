@@ -1,4 +1,7 @@
+PyQt5
 requests
-argparse
-datetime
 unidecode
+urllib3
+PyYAML
+openpyxl
+browser_cookie3

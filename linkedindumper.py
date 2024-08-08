@@ -1,272 +1,454 @@
-import requests
-import random
-import json
-import re
-import argparse
-from argparse import RawTextHelpFormatter
 import sys
-import time
+import json
+import requests
+import re
 import unidecode
-from datetime import datetime
 import urllib.parse
-import textwrap
-import threading
+import yaml
+import os
+import platform
+import webbrowser
+import openpyxl
+import browser_cookie3
+from openpyxl import Workbook
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout, \
+    QMessageBox, QProgressBar, QCheckBox, QSpacerItem, QSizePolicy
+from PyQt5.QtCore import QThread, pyqtSignal, Qt
 
-# You may store your session cookie here persistently
-li_at = "YOUR-COOKIE-VALUE"
+# Путь к конфигурационным файлам
+config_file_path = 'config.yml'
+welcome_file_path = 'welcomescreen.yml'
+last_search_file_path = 'last_search.json'
 
-# Converting German umlauts
-special_char_map = {ord('ä'):'ae', ord('ü'):'ue', ord('ö'):'oe', ord('ß'):'ss'}
 
-format_examples = '''
---email-format '{0}.{1}@example.com' --> john.doe@example.com
---email-format '{0[0]}.{1}@example.com' --> j.doe@example.com
---email-format '{1}@example.com' --> doe@example.com
---email-format '{0}@example.com' --> john@example.com
---email-format '{0[0]}{1[0]}@example.com' --> jd@example.com
-'''
+# Функция для загрузки конфигурационного файла
+def load_config():
+    with open(config_file_path, 'r') as file:
+        config = yaml.safe_load(file)
+    return config
 
-parser = argparse.ArgumentParser("linkedindumper.py", formatter_class=RawTextHelpFormatter)
-parser.add_argument("--url", metavar='<linkedin-url>', help="A LinkedIn company url - https://www.linkedin.com/company/<company>", type=str, required=True)
-parser.add_argument("--cookie", metavar='<cookie>', help="LinkedIn 'li_at' session cookie", type=str, required=False)
-parser.add_argument("--quiet", help="Show employee results only", required=False, action='store_true')
-parser.add_argument("--include-private-profiles", help="Show private accounts too", required=False, action='store_true')
-parser.add_argument("--jitter", help="Add a random jitter to HTTP requests", required=False, action='store_true')
-parser.add_argument("--email-format", help="Python string format for emails; for example:"+format_examples, required=False, type=str)
 
-args = parser.parse_args()
-url = args.url
+# Функция для сохранения конфигурации в файл
+def save_config(config):
+    with open(config_file_path, 'w') as file:
+        yaml.dump(config, file, default_flow_style=False)
 
-# Optional CSRF token, not needed for GET requests but still defined to be sure
-JSESSIONID = "ajax:5739908118104050450"
 
-# Overwrite variables if set via CLI
-if args.cookie:
-	li_at = args.cookie
+# Функция для загрузки Welcome-экран данных
+def load_welcome_data():
+    with open(welcome_file_path, 'r') as file:
+        welcome_data = yaml.safe_load(file)
+    return welcome_data
 
-if args.email_format:
-	mailformat = args.email_format
-else:
-	mailformat = False
 
-headers = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0', 'Content-type': 'application/json', 'Csrf-Token': JSESSIONID}
-cookies_dict = {"li_at": li_at, "JSESSIONID": JSESSIONID}
+# Функция для сохранения последнего поиска
+def save_last_search(data):
+    with open(last_search_file_path, 'w') as file:
+        json.dump(data, file, indent=4)
 
-def print_logo():
-	print("""\
 
- ██▓     ██▓ ███▄    █  ██ ▄█▀▓█████ ▓█████▄  ██▓ ███▄    █ ▓█████▄  █    ██  ███▄ ▄███▓ ██▓███  ▓█████  ██▀███  
-▓██▒    ▓██▒ ██ ▀█   █  ██▄█▒ ▓█   ▀ ▒██▀ ██▌▓██▒ ██ ▀█   █ ▒██▀ ██▌ ██  ▓██▒▓██▒▀█▀ ██▒▓██░  ██▒▓█   ▀ ▓██ ▒ ██▒
-▒██░    ▒██▒▓██  ▀█ ██▒▓███▄░ ▒███   ░██   █▌▒██▒▓██  ▀█ ██▒░██   █▌▓██  ▒██░▓██    ▓██░▓██░ ██▓▒▒███   ▓██ ░▄█ ▒
-▒██░    ░██░▓██▒  ▐▌██▒▓██ █▄ ▒▓█  ▄ ░▓█▄   ▌░██░▓██▒  ▐▌██▒░▓█▄   ▌▓▓█  ░██░▒██    ▒██ ▒██▄█▓▒ ▒▒▓█  ▄ ▒██▀▀█▄  
-░██████▒░██░▒██░   ▓██░▒██▒ █▄░▒████▒░▒████▓ ░██░▒██░   ▓██░░▒████▓ ▒▒█████▓ ▒██▒   ░██▒▒██▒ ░  ░░▒████▒░██▓ ▒██▒
-░ ▒░▓  ░░▓  ░ ▒░   ▒ ▒ ▒ ▒▒ ▓▒░░ ▒░ ░ ▒▒▓  ▒ ░▓  ░ ▒░   ▒ ▒  ▒▒▓  ▒ ░▒▓▒ ▒ ▒ ░ ▒░   ░  ░▒▓▒░ ░  ░░░ ▒░ ░░ ▒▓ ░▒▓░
-░ ░ ▒  ░ ▒ ░░ ░░   ░ ▒░░ ░▒ ▒░ ░ ░  ░ ░ ▒  ▒  ▒ ░░ ░░   ░ ▒░ ░ ▒  ▒ ░░▒░ ░ ░ ░  ░      ░░▒ ░      ░ ░  ░  ░▒ ░ ▒░
-  ░ ░    ▒ ░   ░   ░ ░ ░ ░░ ░    ░    ░ ░  ░  ▒ ░   ░   ░ ░  ░ ░  ░  ░░░ ░ ░ ░      ░   ░░          ░     ░░   ░ 
-    ░  ░ ░           ░ ░  ░      ░  ░   ░     ░           ░    ░       ░            ░               ░  ░   ░     
-                                      ░                      ░                                         ░ by LRVT      
-	""")
+# Функция для загрузки последнего поиска
+def load_last_search():
+    try:
+        with open(last_search_file_path, 'r') as file:
+            data = json.load(file)
+        return data
+    except FileNotFoundError:
+        return {}
 
-def show_loading_message(stop_event):
-	loading_message = "Please be patient"
-	while not stop_event.is_set():
-		for _ in range(3):
-			if stop_event.is_set():
-				break
-			for dot in range(4):
-				sys.stdout.write("\r" + loading_message + "." * dot + " " * (3 - dot))
-				sys.stdout.flush()
-				time.sleep(0.5)
 
-def get_company_id(company):
-	company_encoded = urllib.parse.quote(company)
-	api1 = f"https://www.linkedin.com/voyager/api/voyagerOrganizationDashCompanies?decorationId=com.linkedin.voyager.dash.deco.organization.MiniCompany-10&q=universalName&universalName={company_encoded}"
-	r = requests.get(api1, headers=headers, cookies=cookies_dict, timeout=200)
-	response1 = r.json()
-	company_id = response1["elements"][0]["entityUrn"].split(":")[-1]
-	return company_id
+# Функция для получения токена li_at
+def get_li_at_token():
+    cj = browser_cookie3.chrome(domain_name='www.linkedin.com')
+    li_at_cookie = None
+    for cookie in cj:
+        if cookie.name == 'li_at':
+            li_at_cookie = cookie.value
+            break
+    return li_at_cookie
 
-def get_employee_data(company_id, start, count=10):
-	api2 = f"https://www.linkedin.com/voyager/api/search/dash/clusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-165&origin=COMPANY_PAGE_CANNED_SEARCH&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&count={count}&start={start}"
-	r = requests.get(api2, headers=headers, cookies=cookies_dict, timeout=200)
-	response2 = r.json()
-	return response2
 
-def clean_data(data):
-	emoj = re.compile("["
-				u"\U0001F600-\U0001F64F"  # emoticons
-				u"\U0001F300-\U0001F5FF"  # symbols & pictographs
-				u"\U0001F680-\U0001F6FF"  # transport & map symbols
-				u"\U0001F1E0-\U0001F1FF"  # flags (iOS)
-				u"\U00002500-\U00002BEF"  # chinese char
-				u"\U00002702-\U000027B0"
-				u"\U00002702-\U000027B0"
-				u"\U000024C2-\U0001F251"
-				u"\U0001f926-\U0001f937"
-				u"\U00010000-\U0010ffff"
-				u"\u2640-\u2642" 
-				u"\u2600-\u2B55"
-				u"\u200d"
-				u"\u23cf"
-				u"\u23e9"
-				u"\u231a"
-				u"\ufe0f"  # dingbats
-				u"\u3030"
-									"]+", re.UNICODE)
-	
-	cleaned = re.sub(emoj, '', data).strip()
-	cleaned = cleaned.replace('Ü','Ue').replace('Ä','Ae').replace('Ö', 'Oe').replace('ü', 'ue').replace('ä', 'ae').replace('ö', 'oe')
-	cleaned = cleaned.replace(',', '')
-	cleaned = cleaned.replace(';', ',')
-	cleaned = unidecode.unidecode(cleaned)
-	return cleaned.strip()
+class ParsingWorker(QThread):
+    progress = pyqtSignal(int, int)
+    finished = pyqtSignal(str, list)
 
-def parse_employee_results(results):
-	employee_dict = []
+    def __init__(self, data):
+        super().__init__()
+        self.data = data
 
-	for employee in results:
-		try:
-			account_name = clean_data(employee["itemUnion"]['entityResult']["title"]["text"]).split(" ")
-			badwords = ['Prof.', 'Dr.', 'M.A.', ',', 'LL.M.']
-			for word in list(account_name):
-				if word in badwords:
-					account_name.remove(word)
+    def run(self):
+        li_at = self.data['li_at']
+        urls = [u.strip() for u in self.data['urls']]  # Разделение на несколько URL
+        max_employees = self.data['max_employees']
+        position_filters = [f.strip().lower() for f in self.data['position_filter'].split(',')]
 
-			if len(account_name) == 2:
-				firstname = account_name[0]
-				lastname = account_name[1]
-			else:
-				firstname = ' '.join(map(str, account_name[0:(len(account_name)-1)]))
-				lastname = account_name[-1]
-		except:
-			continue
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0',
+            'Content-type': 'application/json',
+            'Csrf-Token': "ajax:5739908118104050450"
+        }
+        cookies = {"li_at": li_at, "JSESSIONID": "ajax:5739908118104050450"}
 
-		try:
-			position = clean_data(employee["itemUnion"]['entityResult']["primarySubtitle"]["text"])
-		except:
-			position = "N/A"
-		
-		gender = "N/A"
+        def get_company_id(company):
+            company_encoded = urllib.parse.quote(company)
+            api1 = f"https://www.linkedin.com/voyager/api/voyagerOrganizationDashCompanies?decorationId=com.linkedin.voyager.dash.deco.organization.MiniCompany-10&q=universalName&universalName={company_encoded}"
+            r = requests.get(api1, headers=headers, cookies=cookies, timeout=200)
+            response1 = r.json()
+            company_id = response1["elements"][0]["entityUrn"].split(":")[-1]
+            return company_id
 
-		try:
-			location = employee["itemUnion"]['entityResult']["secondarySubtitle"]["text"]
-		except:
-			location = "N/A"
+        def get_employee_data(company_id, start, count=10):
+            api2 = f"https://www.linkedin.com/voyager/api/search/dash/clusters?decorationId=com.linkedin.voyager.dash.deco.search.SearchClusterCollection-165&origin=COMPANY_PAGE_CANNED_SEARCH&q=all&query=(flagshipSearchIntent:SEARCH_SRP,queryParameters:(currentCompany:List({company_id}),resultType:List(PEOPLE)),includeFiltersInResponse:false)&count={count}&start={start}"
+            r = requests.get(api2, headers=headers, cookies=cookies, timeout=200)
+            response2 = r.json()
+            return response2
 
-		try:
-			profile_link = employee["itemUnion"]['entityResult']["navigationUrl"].split("?")[0]
-		except:
-			profile_link = "N/A"
+        def clean_data(data):
+            emoj = re.compile("["
+                              u"😀-🙏"  # emoticons
+                              u"🌀-🗿"  # symbols & pictographs
+                              u"🚀-🛿"  # transport & map symbols
+                              u"🇠-🇿"  # flags (iOS)
+                              u"─-⯯"  # chinese char
+                              u"✂-➰"
+                              u"✂-➰"
+                              u"Ⓜ-🉑"
+                              u"🤦-🤷"
+                              u"𐀀-􏿿"
+                              u"♀-♂"
+                              u"☀-⭕"
+                              u"‍"
+                              u"⏏"
+                              u"⏩"
+                              u"⌚"
+                              u"️"  # dingbats
+                              u"〰"
+                              "]+", re.UNICODE)
 
-		if args.include_private_profiles:
-			employee_dict.append({"firstname": firstname, "lastname": lastname, "position": position, "gender": gender, "location": location, "profile_link": profile_link})
-		else:
-			if (firstname != "LinkedIn" and lastname != "Member"):
-				employee_dict.append({"firstname": firstname, "lastname": lastname, "position": position, "gender": gender, "location": location, "profile_link": profile_link})
-	
-	return employee_dict
+            cleaned = re.sub(emoj, '', data).strip()
+            cleaned = cleaned.replace('Ü', 'Ue').replace('Ä', 'Ae').replace('Ö', 'Oe').replace('ü', 'ue').replace('ä',
+                                                                                                                  'ae').replace(
+                'ö', 'oe')
+            cleaned = cleaned.replace(',', '')
+            cleaned = unidecode.unidecode(cleaned)
+            return cleaned.strip()
 
-def progressbar(it, prefix="", size=60, out=sys.stdout): # Python3.3+
-	count = len(it)
-	def show(j):
-		x = int(size * j / count)
-		if not args.quiet:
-			print("{}[{}{}] {}/{}".format(prefix, "#" * x, "." * (size - x), j, count), end='\r', file=out, flush=True)
-	show(0)
-	for i, item in enumerate(it):
-		yield item
-		show(i + 1)
-	
-	if not args.quiet:
-		print("\n", flush=True, file=out)
+        def parse_employee_results(results, position_filters=None):
+            employee_dict = []
 
-def main():
-	if url.startswith('https://www.linkedin.com/company/'):
-		try:
-			before_keyword, keyword, after_keyword = url.partition('company/')
-			company = after_keyword.split('/')[0]
+            for employee in results:
+                try:
+                    account_name = clean_data(employee["itemUnion"]['entityResult']["title"]["text"]).split(" ")
+                    badwords = ['Prof.', 'Dr.', 'M.A.', ',', 'LL.M.']
+                    for word in list(account_name):
+                        if word in badwords:
+                            account_name.remove(word)
 
-			if not args.quiet:
-				print_logo()
+                    if len(account_name) == 2:
+                        firstname = account_name[0]
+                        lastname = account_name[1]
+                    else:
+                        firstname = ' '.join(map(str, account_name[0:(len(account_name) - 1)]))
+                        lastname = account_name[-1]
+                except:
+                    continue
 
-				stop_event = threading.Event()
-				loading_thread = threading.Thread(target=show_loading_message, args=(stop_event,))
-				loading_thread.start()
+                try:
+                    position = clean_data(employee["itemUnion"]['entityResult']["primarySubtitle"]["text"])
+                except:
+                    position = "N/A"
 
-			company_id = get_company_id(company)
+                if position_filters and not any(pf in position.lower() for pf in position_filters):
+                    continue
 
-			api2_response = get_employee_data(company_id, 0)
-			paging_total = api2_response["paging"]["total"]
-			required_pagings = -(-paging_total // 10)
+                try:
+                    location = employee["itemUnion"]['entityResult']["secondarySubtitle"]["text"]
+                except:
+                    location = "N/A"
 
-			if not args.quiet and api2_response:
-				stop_event.set()
-				loading_thread.join()
-				print()
-				print()
+                try:
+                    profile_link = employee["itemUnion"]['entityResult']["navigationUrl"].split("?")[0]
+                except:
+                    profile_link = "N/A"
 
-			if not args.quiet:
-				print("[i] Company Name: " + company)
-				print("[i] Company X-ID: " + company_id)
-				print("[i] LN Employees: " + str(paging_total) + " employees found")
-				print("[i] Dumping Date: " + datetime.now().strftime("%d/%m/%Y %H:%M:%S"))
-				if mailformat:
-					print("[i] Email Format: " + mailformat)
-				print()
+                employee_dict.append(
+                    {"firstname": firstname, "lastname": lastname, "position": position, "location": location,
+                     "profile_link": profile_link})
 
-			employee_dict = []
+            return employee_dict
 
-			for page in progressbar(range(required_pagings), "Progress: ", 40):
-				if args.jitter:
-					jitter_dict = [0.5, 1, 0.8, 0.3, 3, 1.5, 5]
-					jitter = random.choice(jitter_dict)
-					time.sleep(jitter)
+        def save_to_json(company_name, employees):
+            filename = f"{company_name}.json"
+            with open(filename, mode='w', encoding='utf-8') as file:
+                json.dump(employees, file, indent=4, ensure_ascii=False)
+            return filename
 
-				api2_response = get_employee_data(company_id, page * 10)
-				for i in range(3):
-					try:
-						test = api2_response["elements"][i]["items"][0]['itemUnion']['entityResult']['title']['text']
-						results = api2_response["elements"][i]["items"]
-						employee_dict.extend(parse_employee_results(results))
-					except:
-						pass
+        def save_to_xlsx(company_name, employees):
+            directory = os.path.join('lnkd_excel_results', company_name)
+            os.makedirs(directory, exist_ok=True)
+            file_path = os.path.join(directory, f'{company_name}.xlsx')
 
-			l = employee_dict
-			seen = set()
-			new_l = []
-			for d in l:
-				t = tuple(sorted(d.items()))
-				if t not in seen:
-					seen.add(t)
-					new_l.append(d)
-			employee_dict = new_l
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Employees"
 
-			if mailformat:
-				legende = "Firstname;Lastname;Email;Position;Gender;Location;Profile"
-			else:
-				legende = "Firstname;Lastname;Position;Gender;Location;Profile"
+            # Header
+            ws.append(["FirstName", "LastName", "Position", "Location", "ProfileLink"])
 
-			print(legende)
+            # Data
+            for emp in employees:
+                ws.append([emp["firstname"], emp["lastname"], emp["position"], emp["location"], emp["profile_link"]])
 
-			for person in employee_dict:
-				if mailformat:
-					print(person["firstname"]+";"+person["lastname"]+";"+mailformat.format(person["firstname"].replace(".","").lower().translate(special_char_map),person["lastname"].replace(".","").lower().translate(special_char_map))+";"+person["position"]+";"+person["gender"]+";"+person["location"]+";"+person["profile_link"])
-				else:
-					print(";".join(person.values()))
+            wb.save(file_path)
+            return file_path
 
-			if not args.quiet:
-				print()
-				print("[i] Successfully crawled " + str(len(employee_dict)) + " unique " + str(company) + " employee(s). Hurray ^_-")
+        for url in urls:  # Обработка каждого URL
+            if url.startswith('https://www.linkedin.com/company/'):
+                try:
+                    before_keyword, keyword, after_keyword = url.partition('company/')
+                    company = after_keyword.split('/')[0]
 
-		except Exception as e:
-			print("[!] Exception. Either API has changed and this script is broken or authentication failed.")
-			print("    > Set 'li_at' variable permanently in script or use the '--cookie' CLI flag!")
-			print("[debug] " + str(e))
-	else:
-		print()
-		print("[!] Invalid URL provided.")
-		print("[i] Example URL: 'https://www.linkedin.com/company/apple'")
+                    company_id = get_company_id(company)
 
-if __name__ == "__main__":
-	main()
-	
+                    employee_dict = []
+                    total_parsed = 0
+                    page = 0
+
+                    while total_parsed < max_employees:
+                        api2_response = get_employee_data(company_id, page * 10)
+                        page += 1
+
+                        if not api2_response["elements"]:  # Если больше нет сотрудников для парсинга
+                            print(f"[i] No more employees found. Total parsed: {total_parsed}")
+                            break
+
+                        for i in range(3):
+                            try:
+                                results = api2_response["elements"][i]["items"]
+                                parsed_results = parse_employee_results(results, position_filters=position_filters)
+                                employee_dict.extend(parsed_results)
+                                total_parsed += len(parsed_results)
+                                self.progress.emit(total_parsed, max_employees)
+                                if total_parsed >= max_employees:
+                                    break
+                            except:
+                                pass
+                        if total_parsed >= max_employees:
+                            break
+
+                    json_filename = save_to_json(company, employee_dict)
+                    xlsx_filename = save_to_xlsx(company, employee_dict)
+                    print(f"[i] Successfully crawled {len(employee_dict)} {company} employee(s).")
+                    print(f"[i] Results saved to {json_filename} and corresponding xlsx file.")
+
+                    # Удаление JSON файла и открытие директории с .xlsx файлом
+                    os.remove(json_filename)
+                    # Открытие директории в зависимости от операционной системы
+                    if platform.system() == "Windows":
+                        os.startfile(os.path.dirname(xlsx_filename))
+                    elif platform.system() == "Darwin":  # macOS
+                        os.system(f"open {os.path.dirname(xlsx_filename)}")
+                    else:  # Linux
+                        os.system(f"xdg-open {os.path.dirname(xlsx_filename)}")
+
+                    # Передача сигнала об успешном завершении с результатами
+                    self.finished.emit(xlsx_filename, employee_dict)
+
+                except Exception as e:
+                    print("[!] Exception. Either API has changed and this script is broken or authentication failed.")
+                    print("    > Set 'li_at' variable permanently in script or use the '--cookie' CLI flag!")
+                    print("[debug] " + str(e))
+                    self.finished.emit(None, [])
+
+            else:
+                print()
+                print("[!] Invalid URL provided.")
+                print("[i] Example URL: 'https://www.linkedin.com/company/apple'")
+                self.finished.emit(None, [])
+
+
+class MainWindow(QWidget):
+    def __init__(self, config):
+        super().__init__()
+        self.config = config
+        self.selected_employee_count = None
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle('LinkedIn Employee Parser')
+        self.setGeometry(100, 100, 1000, 800)
+
+        layout = QVBoxLayout()
+
+        # LinkedIn 'li_at' Token (автоопределение)
+        self.config['linkedin']['li_at'] = get_li_at_token()
+        save_config(self.config)
+
+        # LinkedIn Company URL
+        self.url_label = QLabel('LinkedIn Company URL(s) (comma separated):')
+        self.url_input = QTextEdit(self)
+        self.url_input.setFixedHeight(80)
+        layout.addWidget(self.url_label)
+        layout.addWidget(self.url_input)
+
+        # Number of Employees to Parse
+        self.num_employees_label = QLabel('Number of Employees to Parse:')
+        layout.addWidget(self.num_employees_label)
+
+        # Кнопки для выбора количества сотрудников
+        self.button_group = QHBoxLayout()
+        self.buttons = []
+
+        for count in [10, 50, 100, 500, 1000, 5000]:
+            button = QPushButton(f'{count}')
+            button.setCheckable(True)
+            button.clicked.connect(lambda _, c=count: self.select_employee_count(c))
+            self.button_group.addWidget(button)
+            self.buttons.append(button)
+
+        layout.addLayout(self.button_group)
+
+        # Filter by Position (optional)
+        self.position_label = QLabel('Filter by Position (optional):')
+        self.position_input = QTextEdit(self)
+        self.position_input.setFixedHeight(50)
+        layout.addWidget(self.position_label)
+        layout.addWidget(self.position_input)
+
+        # Start Parsing Button
+        self.start_button = QPushButton('Start Parsing', self)
+        self.start_button.clicked.connect(self.on_start)
+        layout.addWidget(self.start_button)
+
+        # Loader (ProgressBar)
+        self.loader = QProgressBar(self)
+        self.loader.setRange(0, 100)  # Диапазон от 0 до 100
+        self.loader.setVisible(False)
+        layout.addWidget(self.loader)
+
+        # Total collected
+        self.total_collected_label = QLabel("Total collected 0/0")
+        layout.addWidget(self.total_collected_label)
+
+        self.setLayout(layout)
+
+    def select_employee_count(self, count):
+        self.selected_employee_count = count
+        for button in self.buttons:
+            button.setChecked(False)
+        button = self.sender()
+        button.setChecked(True)
+
+    def update_progress(self, n, m):
+        self.loader.setValue(int((n / m) * 100))
+        self.total_collected_label.setText(f"Total collected {n}/{m}")
+
+    def on_start(self):
+        # Проверка выбора количества сотрудников
+        if self.selected_employee_count is None:
+            QMessageBox.warning(self, "Warning", "Please select the number of employees to parse.")
+            return
+
+        # Деактивация кнопки и активация лоадера
+        self.start_button.setEnabled(False)
+        self.loader.setVisible(True)
+
+        # Получение данных из полей ввода
+        li_at = self.config['linkedin']['li_at']
+        url = self.url_input.toPlainText()
+        urls = [u.strip() for u in url.split(',')]  # Разделение URL по запятой
+        max_employees = self.selected_employee_count
+        position_filter = self.position_input.toPlainText().lower()
+
+        # Сохранение последнего поиска
+        data = {
+            'li_at': li_at,
+            'urls': urls,  # Передача списка URL
+            'max_employees': max_employees,
+            'position_filter': position_filter
+        }
+        save_last_search(data)
+
+        # Запуск парсинга в отдельном потоке
+        self.thread = ParsingWorker(data)
+        self.thread.progress.connect(self.update_progress)
+        self.thread.finished.connect(self.on_finished)
+        self.thread.start()
+
+    def on_finished(self, xlsx_filename, employee_dict):
+        # Активация кнопки и деактивация лоадера после завершения работы
+        self.start_button.setEnabled(True)
+        self.loader.setVisible(False)
+
+        if xlsx_filename:
+            QMessageBox.information(self, "Info", f"Parsing completed! Results saved to {xlsx_filename}")
+        else:
+            QMessageBox.warning(self, "Warning", "Parsing failed or no employees found.")
+
+
+class WelcomeScreen(QWidget):
+    def __init__(self, config, main_window):
+        super().__init__()
+        self.config = config
+        self.main_window = main_window
+        self.initUI()
+
+    def initUI(self):
+        self.setWindowTitle('Welcome')
+        self.setGeometry(300, 300, 400, 200)  # Размер окна уменьшен
+
+        layout = QVBoxLayout()
+
+        # Текст Welcome
+        welcome_message = QLabel(
+            "Helloworld! This application is based on the LinkedInDumper CLI script which could be seen here: https://github.com/l4rm4nd/LinkedInDumper by LRVT")
+        welcome_message.setWordWrap(True)
+        welcome_message.setAlignment(Qt.AlignCenter)
+        layout.addWidget(welcome_message)
+
+        # Кнопка Visit original author's GitHub
+        github_button = QPushButton("Visit original author's GitHub")
+        github_button.clicked.connect(lambda: webbrowser.open('https://github.com/l4rm4nd/LinkedInDumper'))
+        layout.addWidget(github_button)
+
+        # Spacer item
+        layout.addSpacerItem(QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding))
+
+        # Нижняя часть с кнопками
+        bottom_layout = QHBoxLayout()
+
+        self.do_not_show_again = QCheckBox("Do not show again")
+        bottom_layout.addWidget(self.do_not_show_again)
+
+        continue_button = QPushButton('Continue')
+        continue_button.clicked.connect(self.on_continue)
+        bottom_layout.addWidget(continue_button, alignment=Qt.AlignRight)
+
+        layout.addLayout(bottom_layout)
+
+        self.setLayout(layout)
+
+    def on_continue(self):
+        if self.do_not_show_again.isChecked():
+            self.config['show_welcome'] = False
+            save_config(self.config)
+        self.close()
+        self.main_window.show()
+
+
+class AppController(QApplication):
+    def __init__(self, sys_argv):
+        super().__init__(sys_argv)
+        self.config = load_config()
+        self.main_window = MainWindow(self.config)
+
+        if self.config.get('show_welcome', True):
+            self.welcome_screen = WelcomeScreen(self.config, self.main_window)
+            self.welcome_screen.show()
+        else:
+            self.main_window.show()
+
+
+if __name__ == '__main__':
+    app = AppController(sys.argv)
+    sys.exit(app.exec_())
