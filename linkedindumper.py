@@ -11,7 +11,7 @@ import webbrowser
 import browser_cookie3
 from openpyxl import Workbook
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout, \
-    QMessageBox, QProgressBar, QCheckBox, QSpacerItem, QSizePolicy
+    QMessageBox, QProgressBar, QCheckBox, QSpacerItem, QSizePolicy, QDialog, QLineEdit
 from PyQt5.QtCore import QThread, pyqtSignal, Qt
 
 # Путь к конфигурационным файлам
@@ -20,7 +20,7 @@ welcome_file_path = 'welcomescreen.yml'
 last_search_file_path = 'last_search.json'
 
 
-# Функция для загрузки конфурационного файла
+# Функция для загрузки конфигурационного файла
 def load_config():
     with open(config_file_path, 'r') as file:
         config = yaml.safe_load(file)
@@ -278,8 +278,11 @@ class MainWindow(QWidget):
         layout = QVBoxLayout()
 
         # LinkedIn 'li_at' Token (автоопределение)
-        self.config['linkedin']['li_at'] = get_li_at_token()
-        save_config(self.config)
+        try:
+            self.config['linkedin']['li_at'] = get_li_at_token()
+            save_config(self.config)
+        except Exception as e:
+            self.manual_li_at_input()
 
         # LinkedIn Company URL
         self.url_label = QLabel('LinkedIn Company URL(s) (comma separated):')
@@ -328,6 +331,52 @@ class MainWindow(QWidget):
         layout.addWidget(self.total_collected_label)
 
         self.setLayout(layout)
+
+    def manual_li_at_input(self):
+        dialog = QDialog(self)
+        dialog.setWindowTitle('Enter li_at manually')
+        dialog.setGeometry(400, 400, 400, 200)
+
+        layout = QVBoxLayout()
+
+        input_label = QLabel('Please provide your li_at token from your web browser DevTools:')
+        layout.addWidget(input_label)
+
+        self.li_at_input = QLineEdit(dialog)
+        layout.addWidget(self.li_at_input)
+
+        button_layout = QHBoxLayout()
+
+        use_previous_button = QPushButton('Use previous', dialog)
+        use_previous_button.clicked.connect(self.use_previous_li_at)
+        button_layout.addWidget(use_previous_button)
+
+        ok_button = QPushButton('OK', dialog)
+        ok_button.clicked.connect(lambda: self.save_manual_li_at(dialog))
+        button_layout.addWidget(ok_button)
+
+        exit_button = QPushButton('Exit', dialog)
+        exit_button.clicked.connect(lambda: sys.exit(1))
+        button_layout.addWidget(exit_button)
+
+        layout.addLayout(button_layout)
+
+        dialog.setLayout(layout)
+        dialog.exec_()
+
+    def use_previous_li_at(self):
+        previous_li_at = self.config['linkedin'].get('li_at', '')
+        self.li_at_input.setText(previous_li_at)
+
+    def save_manual_li_at(self, dialog):
+        li_at = self.li_at_input.text()
+        if li_at:
+            self.config['linkedin']['li_at'] = li_at
+            save_config(self.config)
+            dialog.accept()
+        else:
+            QMessageBox.critical(self, "Error", "No li_at token provided. Exiting application.")
+            sys.exit(1)
 
     def select_employee_count(self, count):
         self.selected_employee_count = count
