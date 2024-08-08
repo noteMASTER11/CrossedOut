@@ -8,7 +8,6 @@ import yaml
 import os
 import platform
 import webbrowser
-import openpyxl
 import browser_cookie3
 from openpyxl import Workbook
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QTextEdit, QPushButton, QVBoxLayout, QHBoxLayout, \
@@ -21,7 +20,7 @@ welcome_file_path = 'welcomescreen.yml'
 last_search_file_path = 'last_search.json'
 
 
-# Функция для загрузки конфигурационного файла
+# Функция для загрузки конфурационного файла
 def load_config():
     with open(config_file_path, 'r') as file:
         config = yaml.safe_load(file)
@@ -70,7 +69,7 @@ def get_li_at_token():
 
 class ParsingWorker(QThread):
     progress = pyqtSignal(int, int)
-    finished = pyqtSignal(str, list)
+    finished = pyqtSignal(list)
 
     def __init__(self, data):
         super().__init__()
@@ -81,6 +80,7 @@ class ParsingWorker(QThread):
         urls = [u.strip() for u in self.data['urls']]  # Разделение на несколько URL
         max_employees = self.data['max_employees']
         position_filters = [f.strip().lower() for f in self.data['position_filter'].split(',')]
+        results_summary = []
 
         headers = {
             'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64; rv:102.0) Gecko/20100101 Firefox/102.0',
@@ -238,8 +238,7 @@ class ParsingWorker(QThread):
 
                     json_filename = save_to_json(company, employee_dict)
                     xlsx_filename = save_to_xlsx(company, employee_dict)
-                    print(f"[i] Successfully crawled {len(employee_dict)} {company} employee(s).")
-                    print(f"[i] Results saved to {json_filename} and corresponding xlsx file.")
+                    results_summary.append(f"{company}: {len(employee_dict)} employees collected")
 
                     # Удаление JSON файла и открытие директории с .xlsx файлом
                     os.remove(json_filename)
@@ -251,20 +250,18 @@ class ParsingWorker(QThread):
                     else:  # Linux
                         os.system(f"xdg-open {os.path.dirname(xlsx_filename)}")
 
-                    # Передача сигнала об успешном завершении с результатами
-                    self.finished.emit(xlsx_filename, employee_dict)
-
                 except Exception as e:
                     print("[!] Exception. Either API has changed and this script is broken or authentication failed.")
                     print("    > Set 'li_at' variable permanently in script or use the '--cookie' CLI flag!")
                     print("[debug] " + str(e))
-                    self.finished.emit(None, [])
+                    results_summary.append(f"{company}: Parsing failed or no employees found.")
 
             else:
-                print()
                 print("[!] Invalid URL provided.")
-                print("[i] Example URL: 'https://www.linkedin.com/company/apple'")
-                self.finished.emit(None, [])
+                results_summary.append(f"{url}: Invalid URL.")
+
+        # Передача сигнала об успешном завершении с результатами
+        self.finished.emit(results_summary)
 
 
 class MainWindow(QWidget):
@@ -375,15 +372,14 @@ class MainWindow(QWidget):
         self.thread.finished.connect(self.on_finished)
         self.thread.start()
 
-    def on_finished(self, xlsx_filename, employee_dict):
+    def on_finished(self, results_summary):
         # Активация кнопки и деактивация лоадера после завершения работы
         self.start_button.setEnabled(True)
         self.loader.setVisible(False)
 
-        if xlsx_filename:
-            QMessageBox.information(self, "Info", f"Parsing completed! Results saved to {xlsx_filename}")
-        else:
-            QMessageBox.warning(self, "Warning", "Parsing failed or no employees found.")
+        # Отображение результатов
+        result_text = "\n".join(results_summary)
+        QMessageBox.information(self, "Parsing Completed", result_text)
 
 
 class WelcomeScreen(QWidget):
