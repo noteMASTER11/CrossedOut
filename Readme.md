@@ -46,8 +46,8 @@ Ensure that you have the following installed on your system:
 1. **Clone the Repository:**
 
    ```bash
-   git clone https://github.com/yourusername/LinkedInEmployeeParser.git
-   cd LinkedInEmployeeParser
+   git clone https://github.com/noteMASTER11/CrossedOut.git
+   cd CrossedOut
    ```
 
 2. **Install Dependencies:**
@@ -105,13 +105,10 @@ You can automate the setup and launch process on Windows using a batch script pr
 4. **Application Launch:**
    - Finally, the script activates the virtual environment and runs the LinkedIn Employee Parser application.
 
-### Running the Batch Script
+### Running the Autosetup Scripts
 
-1. **Create the Script:**
-   - Copy the provided batch script code into a new text file and save it with a `.bat` extension, e.g., `start_linkedin_parser.bat`.
-
-2. **Run the Script:**
-   - Double-click the `.bat` file to execute the script. The script will handle the entire setup and launch process for you.
+1. **Run the Script:**
+   - Double-click the `run.bat` file (Windows) or execute `run_macOS.sh` to execute the script. The script will handle the entire setup and launch process for you.
 
 ## Acknowledgements
 
