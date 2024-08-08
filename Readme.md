@@ -3,8 +3,8 @@
 
 Welcome to the LinkedIn Employee Parser! This project is based on the LinkedInDumper CLI script and is designed to facilitate the extraction of employee data from LinkedIn company pages. This application is equipped with a user-friendly graphical interface built using PyQt5, allowing users to easily configure and initiate the parsing process without any need for command-line interaction.
 
-![Screenshot of the application](images/Screenshot 2024-08-08 at 06.38.35.png)
-![Screenshot of the application](images/Screenshot 2024-08-08 at 06.40.16.png)
+![Screenshot of the application](https://github.com/noteMASTER11/CrossedOut/blob/main/images/Screenshot%202024-08-08%20at%2006.38.35.png)
+![Screenshot of the application](https://github.com/noteMASTER11/CrossedOut/blob/main/images/Screenshot%202024-08-08%20at%2006.40.16.png)
 
 ## Table of Contents
 
